@@ -150,7 +150,7 @@ subroutine read_atms(mype,val_tovs,ithin,isfcalc,&
   integer(i_kind), TARGET :: ifov_save(maxobs)
   integer(i_kind), ALLOCATABLE :: IScan(:)
 
-  !Inserting for VIIRS (Adityak)
+  !Inserting for VIIRS cloud product(Adityak)
   integer(i_kind), parameter:: mxmn=137
   integer(i_kind), parameter:: mxlv=1
   integer(i_kind), parameter:: viirs_maxobs=800000
