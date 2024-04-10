@@ -150,6 +150,14 @@ subroutine read_atms(mype,val_tovs,ithin,isfcalc,&
   integer(i_kind), TARGET :: ifov_save(maxobs)
   integer(i_kind), ALLOCATABLE :: IScan(:)
 
+  !Inserting for VIIRS (Adityak)
+  integer(i_kind), parameter:: mxmn=137
+  integer(i_kind), parameter:: mxlv=1
+  integer(i_kind), parameter:: viirs_maxobs=800000
+  integer(i_kind) nviirs_levels
+
+
+
   real(r_kind) cosza,sfcr
   real(r_kind) ch1,ch2,ch3,d0,d1,d2,ch16,qval
   real(r_kind) expansion
@@ -170,6 +178,7 @@ subroutine read_atms(mype,val_tovs,ithin,isfcalc,&
   real(r_kind), POINTER :: bt_in(:), crit1,rsat, t4dv, solzen, solazi
   real(r_kind), POINTER :: dlon_earth,dlat_earth,satazi, lza
 
+
   integer(i_kind), ALLOCATABLE, TARGET :: it_mesh_save(:)
   real(r_kind), ALLOCATABLE, TARGET :: rsat_save(:)
   real(r_kind), ALLOCATABLE, TARGET :: t4dv_save(:)
@@ -181,13 +190,17 @@ subroutine read_atms(mype,val_tovs,ithin,isfcalc,&
   real(r_kind), ALLOCATABLE, TARGET :: solzen_save(:) 
   real(r_kind), ALLOCATABLE, TARGET :: solazi_save(:) 
   real(r_kind), ALLOCATABLE, TARGET :: bt_save(:,:)
+  !Inserted (Adityak)
+  real(r_kind), allocatable, target:: viirs_supercooledwater(:)
+  real(r_double), allocatable, dimension(:,:):: viirs_temp
+  real(r_kind), allocatable, target:: viirs_supcooledcldtype(:)
 
   integer(i_kind),allocatable,dimension(:):: nrec
   real(r_double),allocatable,dimension(:):: data1b8
   real(r_double),dimension(n1bhdr):: bfr1bhdr
   real(r_double),dimension(n2bhdr):: bfr2bhdr
-
   real(r_kind) cdist,disterr,disterrmax,dlon00,dlat00
+
 
   logical :: critical_channels_missing
   real(r_kind)    :: ptime,timeinflat,crit0
@@ -357,6 +370,11 @@ subroutine read_atms(mype,val_tovs,ithin,isfcalc,&
   ALLOCATE(solazi_save(maxobs)) 
   ALLOCATE(bt_save(max_chanl,maxobs))
 
+  ! Inserting for VIIRS (Adityak)
+  ALLOCATE(viirs_temp(137,1))
+  ALLOCATE(viirs_supercooledwater(viirs_maxobs))
+  ALLOCATE(viirs_supcooledcldtype(viirs_maxobs))
+
   iob=1
 ! Big loop over standard data feed and possible rars/db data
 ! llll=1 normal feed, llll=2 RARS/EARS data, llll=3 DB/UW data
@@ -489,6 +507,22 @@ subroutine read_atms(mype,val_tovs,ithin,isfcalc,&
            endif
 
            bt_save(1:nchanl,iob) = data1b8(1:nchanl)
+
+
+           call ufbseq(lnbufr, viirs_temp, mxmn, mxlv, nviirs_levels,'CVCLDSQ')
+
+           !nviirs_levels_vec(iob) = nviirs_levels
+           if (viirs_temp(20,1) .lt. 1.0e8) then
+                viirs_supercooledwater(iob) = viirs_temp(20,1)
+		viirs_supcooledcldtype(iob) = viirs_temp(19,1)
+                write(*,*) 'ASUPOBLL',dlat_earth,dlon_earth
+                write(*,*) 'ASUPOBV',viirs_temp(20,1),viirs_temp(19,1)
+           else
+                viirs_supercooledwater(iob) = 1.0e11
+		viirs_supcooledcldtype(iob) = viirs_temp(19,1)
+           endif
+
+
 
            iob=iob+1
 
@@ -648,6 +682,8 @@ subroutine read_atms(mype,val_tovs,ithin,isfcalc,&
              idomsfc(1),sfcpct,ts,tsavg,vty,vfr,sty,stp,sm,sn,zz,ff10,sfcr)
      endif
 
+
+     dist1=1.0 !Inserted (Adityak)
      crit1 = crit1 + rlndsea(isflg) + 10._r_kind*real(iskip,r_kind) + 0.01_r_kind * abs(zz)
      call checkob(dist1,crit1,itx,iuse)
      if(.not. iuse)cycle ObsLoop
@@ -655,6 +691,18 @@ subroutine read_atms(mype,val_tovs,ithin,isfcalc,&
            if (critical_channels_missing) then
 
               pred=1.0e8_r_kind
+
+	   else if (viirs_supercooledwater(iob) .lt. 1.0e8) then
+
+             if (viirs_supercooledwater(iob) .lt. 1.0e8) then
+                pred = pred + 1.0e4*viirs_supercooledwater(iob)
+                !crit1 = crit1+pred
+                !dist1=1.0   !Inserted (Adityak)
+                !write(*,*) 'ADITYASUPW',pred,crit1,viirs_supercooledwater(iob)
+                !call finalcheck(dist1,crit1,itx,iuse)
+                !if(.not. iuse)cycle ObsLoop
+             endif
+
 
            else
 
@@ -711,8 +759,23 @@ subroutine read_atms(mype,val_tovs,ithin,isfcalc,&
 
 !    Compute "score" for observation.  All scores>=0.0.  Lowest score is "best"
      crit1 = crit1+pred 
+     dist1=1.0   !Inserted (Adityak)
      call finalcheck(dist1,crit1,itx,iuse)
+
+     IF (viirs_supercooledwater(iob) .LT. 1e8) THEN
+        IF (iuse) THEN
+                write(*,*) 'ASELS',pred,viirs_supercooledwater(iob),viirs_supcooledcldtype(iob)
+        ENDIF
+
+        IF (.NOT. iuse) THEN
+                write(*,*) 'ANSELS',pred,viirs_supercooledwater(iob),viirs_supcooledcldtype(iob)
+        ENDIF
+
+     ENDIF
+
+
      if(.not. iuse)cycle ObsLoop
+
      
 !    interpolate NSST variables to Obs. location and get dtw, dtc, tz_tr
      if(nst_gsi>0) then
@@ -796,6 +859,11 @@ subroutine read_atms(mype,val_tovs,ithin,isfcalc,&
   DEALLOCATE(solzen_save) 
   DEALLOCATE(solazi_save) 
   DEALLOCATE(bt_save)
+!Inserting for VIIRS (Adityak)
+  DEALLOCATE(viirs_temp)
+  DEALLOCATE(viirs_supercooledwater)
+  DEALLOCATE(viirs_supcooledcldtype)
+  
 
   call combine_radobs(mype_sub,mype_root,npe_sub,mpi_comm_sub,&
        nele,itxmax,nread,ndata,data_all,score_crit,nrec)
